@@ -16,16 +16,18 @@ import * as z from "zod";
 import { APIError, getSessionFromCtx } from "../../api";
 import { parseSetCookieHeader } from "../../cookies";
 import { generateRandomString } from "../../crypto";
+import { HIDE_METADATA } from "../../utils";
 import { getBaseURL } from "../../utils/url";
-import {
-	type Client,
-	type CodeVerificationValue,
-	type OAuthAccessToken,
-	type OIDCMetadata,
-	type OIDCOptions,
-	oidcProvider,
+import type {
+	Client,
+	CodeVerificationValue,
+	OAuthAccessToken,
+	OIDCMetadata,
+	OIDCOptions,
 } from "../oidc-provider";
+import { oidcProvider } from "../oidc-provider";
 import { schema } from "../oidc-provider/schema";
+import { parsePrompt } from "../oidc-provider/utils/prompt";
 import { authorizeMCPOAuth } from "./authorize";
 
 interface MCPOptions {
@@ -91,10 +93,11 @@ export const getMCPProtectedResourceMetadata = (
 	options?: MCPOptions | undefined,
 ) => {
 	const baseURL = ctx.context.baseURL;
+	const origin = new URL(baseURL).origin;
 
 	return {
-		resource: options?.resource ?? new URL(baseURL).origin,
-		authorization_servers: [baseURL],
+		resource: options?.resource ?? origin,
+		authorization_servers: [origin],
 		jwks_uri: options?.oidcConfig?.metadata?.jwks_uri ?? `${baseURL}/mcp/jwks`,
 		scopes_supported: options?.oidcConfig?.metadata?.scopes_supported ?? [
 			"openid",
@@ -160,12 +163,22 @@ export const mcp = (options: MCPOptions) => {
 							return;
 						}
 						const session =
-							await ctx.context.internalAdapter.findSession(sessionToken);
+							(await ctx.context.internalAdapter.findSession(sessionToken)) ||
+							ctx.context.newSession;
 						if (!session) {
 							return;
 						}
-						ctx.query = JSON.parse(cookie);
-						ctx.query!.prompt = "consent";
+						// Remove "login" from prompt since user just logged in
+						const promptSet = parsePrompt(String(ctx.query?.prompt));
+						if (promptSet.has("login")) {
+							const newPromptSet = new Set(promptSet);
+							newPromptSet.delete("login");
+							ctx.query = {
+								...ctx.query,
+								prompt: Array.from(newPromptSet).join(" "),
+							};
+						}
+
 						ctx.context.session = session;
 						const response = await authorizeMCPOAuth(ctx, opts);
 						return response;
@@ -180,7 +193,7 @@ export const mcp = (options: MCPOptions) => {
 				{
 					method: "GET",
 					metadata: {
-						client: false,
+						...HIDE_METADATA,
 					},
 				},
 				async (c) => {
@@ -198,7 +211,7 @@ export const mcp = (options: MCPOptions) => {
 				{
 					method: "GET",
 					metadata: {
-						client: false,
+						...HIDE_METADATA,
 					},
 				},
 				async (c) => {
@@ -243,6 +256,10 @@ export const mcp = (options: MCPOptions) => {
 					body: z.record(z.any(), z.any()),
 					metadata: {
 						isAction: false,
+						allowedMediaTypes: [
+							"application/x-www-form-urlencoded",
+							"application/json",
+						],
 					},
 				},
 				async (ctx) => {
@@ -453,7 +470,7 @@ export const mcp = (options: MCPOptions) => {
 							}
 							return {
 								...res,
-								redirectURLs: res.redirectURLs.split(","),
+								redirectUrls: res.redirectUrls.split(","),
 								metadata: res.metadata ? JSON.parse(res.metadata) : {},
 							} as Client;
 						});
@@ -585,7 +602,7 @@ export const mcp = (options: MCPOptions) => {
 						family_name: user.name.split(" ")[1]!,
 						name: user.name,
 						profile: user.image,
-						updated_at: user.updatedAt.toISOString(),
+						updated_at: Math.floor(new Date(user.updatedAt).getTime() / 1000),
 					};
 					const email = {
 						email: user.email,
@@ -722,7 +739,7 @@ export const mcp = (options: MCPOptions) => {
 														description:
 															"Secret key for the client. Not included for public clients.",
 													},
-													redirectURLs: {
+													redirectUrls: {
 														type: "array",
 														items: { type: "string", format: "uri" },
 														description: "List of allowed redirect URLs",
@@ -763,7 +780,7 @@ export const mcp = (options: MCPOptions) => {
 												required: [
 													"name",
 													"clientId",
-													"redirectURLs",
+													"redirectUrls",
 													"type",
 													"authenticationScheme",
 													"disabled",
@@ -844,7 +861,7 @@ export const mcp = (options: MCPOptions) => {
 							metadata: body.metadata ? JSON.stringify(body.metadata) : null,
 							clientId: clientId,
 							clientSecret: finalClientSecret,
-							redirectURLs: body.redirect_uris.join(","),
+							redirectUrls: body.redirect_uris.join(","),
 							type: clientType,
 							authenticationScheme:
 								body.token_endpoint_auth_method || "client_secret_basic",

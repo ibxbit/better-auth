@@ -1,4 +1,4 @@
-import type { AuthContext } from "@better-auth/core";
+import type { AuthContext, GenericEndpointContext } from "@better-auth/core";
 import type { DBFieldAttribute } from "@better-auth/core/db";
 import type { Session, User } from "../../types";
 import type { AccessControl, Role } from "../access";
@@ -109,7 +109,7 @@ export interface OrganizationOptions {
 			 */
 			customCreateDefaultTeam?: (
 				organization: Organization & Record<string, any>,
-				request?: Request,
+				ctx?: GenericEndpointContext,
 			) => Promise<Team & Record<string, any>>;
 		};
 		/**
@@ -132,7 +132,7 @@ export interface OrganizationOptions {
 							session: Session;
 						} | null;
 					},
-					request?: Request,
+					ctx?: GenericEndpointContext,
 			  ) => number | Promise<number>)
 			| number;
 
@@ -172,17 +172,15 @@ export interface OrganizationOptions {
 	 * @default 100
 	 */
 	invitationLimit?:
-		| (
-				| number
-				| ((
-						data: {
-							user: User;
-							organization: Organization;
-							member: Member;
-						},
-						ctx: AuthContext,
-				  ) => Promise<number> | number)
-		  )
+		| number
+		| ((
+				data: {
+					user: User & Record<string, any>;
+					organization: Organization & Record<string, any>;
+					member: Member & Record<string, any>;
+				},
+				ctx: AuthContext,
+		  ) => Promise<number> | number)
 		| undefined;
 	/**
 	 * Cancel pending invitations on re-invite.
@@ -214,7 +212,7 @@ export interface OrganizationOptions {
 	 * sendInvitationEmail: async (data) => {
 	 * 	const url = `https://yourapp.com/organization/
 	 * accept-invitation?id=${data.id}`;
-	 * 	await sendEmail(data.email, "Invitation to join
+	 * 	 sendEmail(data.email, "Invitation to join
 	 * organization", `Click the link to join the
 	 * organization: ${url}`);
 	 * }
